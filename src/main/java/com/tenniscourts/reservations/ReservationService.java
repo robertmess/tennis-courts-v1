@@ -1,23 +1,42 @@
 package com.tenniscourts.reservations;
 
 import com.tenniscourts.exceptions.EntityNotFoundException;
+import com.tenniscourts.guests.Guest;
+import com.tenniscourts.schedules.Schedule;
+import com.tenniscourts.schedules.ScheduleRepository;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 @Service
 @AllArgsConstructor
 public class ReservationService {
 
     private final ReservationRepository reservationRepository;
+    private final ScheduleRepository scheduleRepository;
 
     private final ReservationMapper reservationMapper;
 
     public ReservationDTO bookReservation(CreateReservationRequestDTO createReservationRequestDTO) {
-        throw new UnsupportedOperationException();
+        Schedule schedule = scheduleRepository.findById(createReservationRequestDTO.getScheduleId())
+                .orElseThrow(() -> new EntityNotFoundException(String.format("Tennis schedule for given id %s was not found", createReservationRequestDTO.getScheduleId())));
+        Guest guest = Guest.builder()
+                .id(createReservationRequestDTO.getGuestId())
+                .build();
+        Reservation reservation =  Reservation.builder()
+                .guest(guest)
+                .value(new BigDecimal(10))
+                .schedule(schedule)
+                .reservationStatus(ReservationStatus.READY_TO_PLAY)
+                .build();
+
+        schedule.addReservation(reservation);
+
+        return reservationMapper.map(reservationRepository.save(reservation));
     }
 
     public ReservationDTO findReservation(Long reservationId) {
@@ -66,13 +85,17 @@ public class ReservationService {
 
         if (hours >= 24) {
             return reservation.getValue();
+        } else if (hours >= 12) {
+            return reservation.getValue().multiply(new BigDecimal(0.75));
+        } else if (hours >= 2) {
+            return reservation.getValue().multiply(new BigDecimal(0.5));
+        } else if (hours > 0){
+            return reservation.getValue().multiply(new BigDecimal(0.25));
         }
 
         return BigDecimal.ZERO;
     }
 
-    /*TODO: This method actually not fully working, find a way to fix the issue when it's throwing the error:
-            "Cannot reschedule to the same slot.*/
     public ReservationDTO rescheduleReservation(Long previousReservationId, Long scheduleId) {
         Reservation previousReservation = cancel(previousReservationId);
 
@@ -87,7 +110,15 @@ public class ReservationService {
                 .guestId(previousReservation.getGuest().getId())
                 .scheduleId(scheduleId)
                 .build());
+
         newReservation.setPreviousReservation(reservationMapper.map(previousReservation));
+        reservationRepository.save(reservationMapper.map(newReservation));
+
         return newReservation;
+    }
+
+    public List<ReservationDTO> findAllReservations() {
+
+        return reservationMapper.map(reservationRepository.findAll());
     }
 }
